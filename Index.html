@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Baby Elephants</title>
+  <style>
+    body { margin: 0; background: #fff; font-family: Arial; text-align: center; }
+    h1 { margin: 30px 10px; }
+    img { width: 700px; max-width: 90%; max-height: 70vh; object-fit: contain; border-radius: 16px; visibility: hidden; }
+    #status { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Hello world, photos of baby elephants.</h1>
+  <img id="e" alt="Baby elephant">
+  <p id="status" role="status" hidden></p>
+
+  <script>
+    const e = document.getElementById("e");
+    const status = document.getElementById("status");
+    const cats = ["Category:Elephant_calves", "Category:Elephas_maximus_(juvenile)",
+      "Category:Loxodonta_africana_(juvenile)", "Category:Suckling_elephants"];
+    const api = "https://commons.wikimedia.org/w/api.php";
+    const failed = new Set();
+    let images = [], nextIndex = 0, currentUrl = "";
+
+    function shuffle(items) {
+      for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
+    }
+
+    async function request(params) {
+      const url = new URL(api);
+      url.search = new URLSearchParams({ ...params, origin: "*" });
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Wikimedia API error: ${response.status}`);
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.info || "Wikimedia API error");
+      return data;
+    }
+
+    function showNext() {
+      while (nextIndex < images.length && failed.has(images[nextIndex])) nextIndex++;
+      if (nextIndex === images.length) {
+        if (failed.size === images.length) {
+          e.removeAttribute("src");
+          status.textContent = "No baby elephant images could be loaded.";
+          status.hidden = false;
+          return;
+        }
+        shuffle(images);
+        nextIndex = 0;
+        if (images.length > 1 && images[0] === currentUrl) {
+          const i = 1 + Math.floor(Math.random() * (images.length - 1));
+          [images[0], images[i]] = [images[i], images[0]];
+        }
+        while (failed.has(images[nextIndex])) nextIndex++;
+      }
+
+      const imageUrl = images[nextIndex++];
+      e.style.visibility = "hidden";
+      e.onload = () => { currentUrl = imageUrl; e.style.visibility = "visible"; };
+      e.onerror = () => { failed.add(imageUrl); showNext(); };
+      e.src = imageUrl;
+    }
+
+    async function start() {
+      try {
+        const groups = await Promise.all(cats.map(async category => {
+          const data = await request({ action: "query", format: "json", list: "categorymembers",
+            cmtype: "file", cmlimit: "100", cmdir: Math.random() < 0.5 ? "asc" : "desc",
+            cmtitle: category });
+          return (data.query?.categorymembers || []).map(file => file.title);
+        }));
+        const titles = [...new Set(groups.flat())];
+        shuffle(titles);
+        const batches = [];
+        for (let i = 0; i < titles.length; i += 50) {
+          batches.push(request({ action: "query", format: "json", prop: "imageinfo",
+            iiprop: "url", iiurlwidth: "600", titles: titles.slice(i, i + 50).join("|") }));
+        }
+        const results = await Promise.all(batches);
+        images = [...new Set(results.flatMap(data => Object.values(data.query?.pages || {})
+          .map(page => page.imageinfo?.[0]?.thumburl || page.imageinfo?.[0]?.url).filter(Boolean)))];
+        shuffle(images);
+        if (images.length) showNext();
+        else {
+          status.textContent = "No baby elephant images are currently available.";
+          status.hidden = false;
+        }
+      } catch (error) {
+        console.error(error);
+        status.textContent = "Unable to load baby elephant photos. Please try again later.";
+        status.hidden = false;
+      }
+    }
+    start();
+  </script>
+</body>
+</html>
